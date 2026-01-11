@@ -1,71 +1,60 @@
 """
-Context detection - knows where you are and what you can do
-Enhanced with learning mode, smart history, and config
+Context - Smart project detection with learning mode and history
 """
 
 from pathlib import Path
 import json
-from datetime import datetime, timedelta
-import yaml
+from datetime import datetime
+import subprocess
 
 class DojoContext:
     def __init__(self):
         self.cwd = Path.cwd()
         self.dojo_root = Path.home() / 'dojo'
-        self.config_dir = Path.home() / '.dojo'
-        self.config_file = self.config_dir / 'config.yml'
+        self.config_dir = Path.home() / '.config' / 'dojo'
         self.history_file = self.config_dir / 'history.json'
+        self.config_file = self.config_dir / 'config.json'
         
         # Ensure config exists
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        self._init_config()
-        self._init_history()
+        if not self.history_file.exists():
+            self.history_file.write_text(json.dumps({
+                'recent': [], 
+                'visits': {},
+                'command_history': []
+            }, indent=2))
         
-        # Load config
+        if not self.config_file.exists():
+            self.config_file.write_text(json.dumps({
+                'learning_mode': False,
+                'version': 'v2',
+                'theme': 'snowzies',
+                'auto_open_browser': True
+            }, indent=2))
+        
         self.config = self._load_config()
-        self.learning_mode = self.config.get('learning_mode', False)
-        
         self.project_type = self.detect_type()
         self.project_name = self.get_project_name()
-        self.in_git_repo = self._is_git_repo()
+        self.git_status = self.get_git_status()
         
         # Log this visit
         self.log_visit()
     
-    def _init_config(self):
-        """Initialize config file with defaults"""
-        if not self.config_file.exists():
-            default_config = {
-                'version': '2.0',
-                'learning_mode': False,
-                'cli_mode': 'v2',
-                'theme': 'snowzies',
-                'auto_sync': False,
-                'fuzzy_threshold': 0.6,
-            }
-            self.config_file.write_text(yaml.dump(default_config))
-    
-    def _init_history(self):
-        """Initialize history file"""
-        if not self.history_file.exists():
-            self.history_file.write_text(json.dumps({
-                'recent': [],
-                'visits': {},
-                'commands': [],
-                'favorites': []
-            }, indent=2))
-    
     def _load_config(self):
-        """Load config from YAML"""
+        """Load user config"""
         try:
-            return yaml.safe_load(self.config_file.read_text())
+            return json.loads(self.config_file.read_text())
         except:
-            return {'learning_mode': False, 'cli_mode': 'v2'}
+            return {'learning_mode': False, 'version': 'v2'}
     
-    def save_config(self, updates):
-        """Save config updates"""
-        self.config.update(updates)
-        self.config_file.write_text(yaml.dump(self.config))
+    def save_config(self, key, value):
+        """Update config value"""
+        self.config[key] = value
+        self.config_file.write_text(json.dumps(self.config, indent=2))
+    
+    def is_learning_mode(self):
+        """Check if learning mode is enabled"""
+        return self.config.get('learning_mode', False)
     
     def is_in_dojo(self):
         """Check if current dir is inside dojo"""
@@ -80,36 +69,32 @@ class DojoContext:
             return None
         
         try:
-            # Get name relative to dojo root
             rel_path = self.cwd.relative_to(self.dojo_root)
             parts = rel_path.parts
             
-            # If in a category folder, return category/name
-            if len(parts) >= 2 and parts[0] in ['apps', 'bots', 'tools', 'contracts', 'work', 'lab', 'research']:
+            # Check new structure (work/lab/research)
+            if len(parts) >= 2 and parts[0] in ['work', 'lab', 'research']:
+                if len(parts) >= 3:
+                    return f"{parts[0]}/{parts[1]}/{parts[2]}"
                 return f"{parts[0]}/{parts[1]}"
+            
+            # Legacy structure (apps/bots/tools)
+            if len(parts) >= 2 and parts[0] in ['apps', 'bots', 'tools', 'contracts', 'protocols', 'experiments']:
+                return f"{parts[0]}/{parts[1]}"
+            
             return str(rel_path)
         except:
             return None
     
-    def _is_git_repo(self):
-        """Check if current directory is in a git repo"""
-        current = self.cwd
-        while current != current.parent:
-            if (current / '.git').exists():
-                return True
-            current = current.parent
-        return False
-    
     def detect_type(self):
-        """Auto-detect project type with enhanced detection"""
+        """Auto-detect project type with detailed classification"""
         checks = [
             ('package.json', self._check_node),
             ('app.py', lambda: 'streamlit'),
             ('requirements.txt', lambda: 'python'),
             ('foundry.toml', lambda: 'foundry'),
-            ('hardhat.config.js', lambda: 'hardhat'),
             ('Cargo.toml', lambda: 'rust'),
-            ('go.mod', lambda: 'golang'),
+            ('go.mod', lambda: 'go'),
         ]
         
         for file, checker in checks:
@@ -120,18 +105,24 @@ class DojoContext:
     
     def _check_node(self):
         """Detailed Node.js project detection"""
+        # Check for Next.js
         if (self.cwd / 'next.config.ts').exists() or (self.cwd / 'next.config.js').exists():
             return 'nextjs'
-        if (self.cwd / 'next.config.mjs').exists():
-            return 'nextjs'
+        
+        # Check for Next.js app directory
+        if (self.cwd / 'app').is_dir() and (self.cwd / 'package.json').exists():
+            try:
+                pkg = json.loads((self.cwd / 'package.json').read_text())
+                if 'next' in pkg.get('dependencies', {}):
+                    return 'nextjs'
+            except:
+                pass
         
         try:
             pkg = json.loads((self.cwd / 'package.json').read_text())
             deps = {**pkg.get('dependencies', {}), **pkg.get('devDependencies', {})}
             
-            if 'next' in deps:
-                return 'nextjs'
-            elif 'react' in deps:
+            if 'react' in deps:
                 return 'react'
             elif 'express' in deps:
                 return 'express'
@@ -142,51 +133,93 @@ class DojoContext:
         
         return 'node'
     
+    def get_git_status(self):
+        """Get git status for current directory"""
+        try:
+            result = subprocess.run(
+                ['git', 'status', '-sb'],
+                cwd=self.cwd,
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            
+            if result.returncode != 0:
+                return None
+            
+            status = result.stdout
+            return {
+                'branch': self._extract_branch(status),
+                'ahead': 'ahead' in status,
+                'behind': 'behind' in status,
+                'synced': 'up to date' in status.lower() or 'up-to-date' in status.lower(),
+                'clean': not bool([l for l in status.split('\n')[1:] if l.strip()])
+            }
+        except:
+            return None
+    
+    def _extract_branch(self, status):
+        """Extract branch name from git status"""
+        try:
+            first_line = status.split('\n')[0]
+            if '...' in first_line:
+                return first_line.split('...')[0].replace('##', '').strip()
+            return first_line.replace('##', '').strip()
+        except:
+            return 'unknown'
+    
     def get_quick_actions(self):
         """Return available quick actions for current project"""
         actions = {
             'nextjs': [
-                ('dev', 'Start dev server', 'npm run dev'),
-                ('build', 'Build for production', 'npm run build'),
-                ('test', 'Run tests', 'npm test'),
+                ('dev', 'Start dev server', 'npm run dev', 'Runs Next.js development server on http://localhost:3000'),
+                ('build', 'Build for production', 'npm run build', 'Creates optimized production build in .next/'),
+                ('test', 'Run tests', 'npm test', 'Executes Jest test suite'),
             ],
             'react': [
-                ('dev', 'Start dev server', 'npm start'),
-                ('build', 'Build', 'npm run build'),
-                ('test', 'Test', 'npm test'),
-            ],
-            'vite': [
-                ('dev', 'Start dev server', 'npm run dev'),
-                ('build', 'Build', 'npm run build'),
-                ('preview', 'Preview build', 'npm run preview'),
+                ('dev', 'Start dev server', 'npm start', 'Launches React dev server with hot reload'),
+                ('build', 'Build', 'npm run build', 'Creates production build in build/ directory'),
+                ('test', 'Test', 'npm test', 'Runs test suite in watch mode'),
             ],
             'node': [
-                ('dev', 'Start dev', 'npm run dev'),
-                ('start', 'Start', 'npm start'),
-                ('install', 'Install deps', 'npm install'),
+                ('dev', 'Start dev', 'npm run dev', 'Starts development server (usually with nodemon)'),
+                ('start', 'Start', 'npm start', 'Runs the production server'),
+                ('install', 'Install deps', 'npm install', 'Installs all dependencies from package.json'),
             ],
             'streamlit': [
-                ('dev', 'Run streamlit', 'streamlit run app.py'),
-                ('install', 'Install deps', 'pip install -r requirements.txt'),
+                ('dev', 'Run streamlit', f'streamlit run app.py', 'Launches Streamlit app in browser'),
+                ('install', 'Install deps', 'pip install -r requirements.txt', 'Installs Python dependencies'),
             ],
             'python': [
-                ('dev', 'Run main.py', 'python main.py'),
-                ('install', 'Install deps', 'pip install -r requirements.txt'),
-                ('venv', 'Create venv', 'python -m venv venv'),
+                ('dev', 'Run main.py', 'python main.py', 'Executes main Python script'),
+                ('install', 'Install deps', 'pip install -r requirements.txt', 'Installs required packages'),
+                ('venv', 'Create venv', 'python -m venv venv', 'Creates virtual environment'),
             ],
             'foundry': [
-                ('build', 'Build contracts', 'forge build'),
-                ('test', 'Run tests', 'forge test'),
-                ('deploy', 'Deploy', 'forge script'),
-            ],
-            'hardhat': [
-                ('compile', 'Compile contracts', 'npx hardhat compile'),
-                ('test', 'Run tests', 'npx hardhat test'),
-                ('deploy', 'Deploy', 'npx hardhat run scripts/deploy.js'),
+                ('build', 'Build contracts', 'forge build', 'Compiles Solidity contracts'),
+                ('test', 'Run tests', 'forge test', 'Runs Foundry test suite'),
+                ('deploy', 'Deploy', 'forge script', 'Deploys contracts using scripts'),
             ],
         }
         
         return actions.get(self.project_type, [])
+    
+    def get_context_help(self):
+        """Get contextual help based on current location"""
+        if not self.is_in_dojo():
+            return {
+                'location': 'Outside Dojo',
+                'suggestions': ['cd ~/dojo', 'dojo goto <project>']
+            }
+        
+        actions = self.get_quick_actions()
+        
+        return {
+            'location': self.project_name or 'Dojo root',
+            'type': self.project_type,
+            'actions': [a[0] for a in actions],
+            'git': self.git_status
+        }
     
     def log_visit(self):
         """Log current project visit for recent tracking"""
@@ -220,68 +253,29 @@ class DojoContext:
             data['visits'] = visits
             
             self.history_file.write_text(json.dumps(data, indent=2))
-        except Exception as e:
-            # Silent fail - history is not critical
+        except Exception:
             pass
     
-    def log_command(self, command):
-        """Log command for history"""
+    def log_command(self, command, args):
+        """Log command execution"""
         try:
             data = json.loads(self.history_file.read_text())
-            commands = data.get('commands', [])
+            cmd_history = data.get('command_history', [])
             
-            entry = {
+            cmd_history.append({
                 'command': command,
+                'args': args,
                 'timestamp': datetime.now().isoformat(),
-                'project': self.project_name,
-                'path': str(self.cwd)
-            }
+                'project': self.project_name
+            })
             
-            commands.insert(0, entry)
-            commands = commands[:100]  # Keep last 100 commands
-            
-            data['commands'] = commands
+            # Keep last 100 commands
+            data['command_history'] = cmd_history[-100:]
             self.history_file.write_text(json.dumps(data, indent=2))
-        except:
+        except Exception:
             pass
     
-    def get_recent_projects(self, limit=10, days=7):
-        """Get recent projects with filtering"""
-        try:
-            data = json.loads(self.history_file.read_text())
-            recent = data.get('recent', [])
-            
-            # Filter by date if specified
-            if days:
-                cutoff = datetime.now() - timedelta(days=days)
-                recent = [
-                    r for r in recent 
-                    if datetime.fromisoformat(r['timestamp']) > cutoff
-                ]
-            
-            return recent[:limit]
-        except:
-            return []
-    
-    def add_favorite(self, project_name):
-        """Add project to favorites"""
-        try:
-            data = json.loads(self.history_file.read_text())
-            favorites = data.get('favorites', [])
-            
-            if project_name not in favorites:
-                favorites.append(project_name)
-                data['favorites'] = favorites
-                self.history_file.write_text(json.dumps(data, indent=2))
-                return True
-            return False
-        except:
-            return False
-    
-    def get_favorites(self):
-        """Get favorite projects"""
-        try:
-            data = json.loads(self.history_file.read_text())
-            return data.get('favorites', [])
-        except:
-            return []
+    def needs_migration(self):
+        """Check if old folder structure exists"""
+        old_folders = ['apps', 'bots', 'experiments', 'protocols']
+        return any((self.dojo_root / folder).exists() for folder in old_folders)
