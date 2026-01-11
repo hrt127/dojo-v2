@@ -30,7 +30,7 @@ class UI:
         """Show dojo header"""
         self.console.print()
         self.console.print(" ⛄ ", style="header", end="")
-        self.console.print("dojo v2", style="header bold", end="")
+        self.console.print("dojo v2", style="header", end="")
         self.console.print(" 🌸", style="header")
         
         if self.ctx.is_learning_mode():
@@ -170,7 +170,7 @@ class UI:
                 ]
             },
             {
-                "icon": "🩺",
+                "icon": "🪺",
                 "title": "HEALTH & MAINTENANCE",
                 "desc": "Keep everything running smoothly",
                 "commands": [
