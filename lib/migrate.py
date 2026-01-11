@@ -3,18 +3,16 @@ Migration - Tool to migrate from old to new folder structure
 """
 
 from pathlib import Path
-from rich.console import Console
 from rich.prompt import Confirm
 from rich.table import Table
 import shutil
 import json
 from datetime import datetime
 
-console = Console()
-
 class Migration:
     def __init__(self, ctx):
         self.ctx = ctx
+        self.console = ctx.ui.console  # Use themed console from context
         self.dojo_root = ctx.dojo_root
         self.backup_file = ctx.config_dir / 'migration_backup.json'
         
@@ -33,21 +31,21 @@ class Migration:
     
     def preview(self):
         """Show what would be migrated"""
-        console.print("\n [accent]MIGRATION PREVIEW[/]\n")
-        console.print(" This will reorganize your dojo structure:\n")
+        self.console.print("\n [accent]MIGRATION PREVIEW[/]\n")
+        self.console.print(" This will reorganize your dojo structure:\n")
         
         # Old structure
-        console.print(" [dim]OLD STRUCTURE:[/]")
+        self.console.print(" [dim]OLD STRUCTURE:[/]")
         old_folders = ['apps', 'bots', 'experiments', 'protocols', 'ideas', 'tools', 'contracts']
         for folder in old_folders:
             if (self.dojo_root / folder).exists():
                 count = len(list((self.dojo_root / folder).iterdir()))
-                console.print(f"   {folder}/ [dim]({count} items)[/]")
+                self.console.print(f"   {folder}/ [dim]({count} items)[/]")
         
-        console.print()
+        self.console.print()
         
         # New structure
-        console.print(" [accent]NEW STRUCTURE:[/]")
+        self.console.print(" [accent]NEW STRUCTURE:[/]")
         new_structure = {
             'work': 'Active development (apps, bots, tools, contracts)',
             'lab': 'Experiments & learning',
@@ -56,39 +54,39 @@ class Migration:
         }
         
         for folder, desc in new_structure.items():
-            console.print(f"   {folder}/ [dim]{desc}[/]")
+            self.console.print(f"   {folder}/ [dim]{desc}[/]")
         
-        console.print()
+        self.console.print()
         
         # Show detailed mapping
         table = Table(title="Folder Mapping")
         table.add_column("Old Path", style="dim")
         table.add_column("→", justify="center")
-        table.add_column("New Path", style="accent")
+        table.add_column("New Path", style="text")
         
         for old, new in self.structure_map.items():
             if (self.dojo_root / old).exists():
                 table.add_row(old, "→", new)
         
-        console.print(table)
-        console.print()
+        self.console.print(table)
+        self.console.print()
         
         # Safety notes
-        console.print(" [warning]⚠  IMPORTANT NOTES:[/]")
-        console.print("   • This will move folders, not copy")
-        console.print("   • A backup record will be saved")
-        console.print("   • You can rollback if needed")
-        console.print("   • Git repos will be preserved\n")
+        self.console.print(" [warning]⚠  IMPORTANT NOTES:[/]")
+        self.console.print("   • This will move folders, not copy")
+        self.console.print("   • A backup record will be saved")
+        self.console.print("   • You can rollback if needed")
+        self.console.print("   • Git repos will be preserved\n")
     
     def execute(self):
         """Execute the migration"""
         self.preview()
         
         if not Confirm.ask(" [text]Proceed with migration?[/]"):
-            console.print(" [dim]Migration cancelled[/]\n")
+            self.console.print(" [dim]Migration cancelled[/]\n")
             return
         
-        console.print("\n [accent]Starting migration...[/]\n")
+        self.console.print("\n [accent]Starting migration...[/]\n")
         
         # Create backup record
         backup = {
@@ -110,7 +108,7 @@ class Migration:
             if not old.exists():
                 continue
             
-            console.print(f" Moving {old_path}... ", end="")
+            self.console.print(f" Moving {old_path}... ", end="")
             
             try:
                 # Ensure parent exists
@@ -124,65 +122,65 @@ class Migration:
                     'to': new_path
                 })
                 
-                console.print("[success]✓[/]")
+                self.console.print("[success]✓[/]")
             except Exception as e:
-                console.print(f"[error]✗ {e}[/]")
+                self.console.print(f"[error]✗ {e}[/]")
         
         # Save backup
         self.backup_file.write_text(json.dumps(backup, indent=2))
         
-        console.print()
-        console.print(" [success]Migration complete! 🎉[/]")
-        console.print(f" [dim]Backup saved to: {self.backup_file}[/]\n")
+        self.console.print()
+        self.console.print(" [success]Migration complete! 🎉[/]")
+        self.console.print(f" [dim]Backup saved to: {self.backup_file}[/]\n")
         
         # Show new structure
-        console.print(" [accent]Your new structure:[/]\n")
+        self.console.print(" [accent]Your new structure:[/]\n")
         self._show_tree()
     
     def rollback(self):
         """Rollback migration"""
         if not self.backup_file.exists():
-            console.print(" [error]No migration backup found[/]\n")
+            self.console.print(" [error]No migration backup found[/]\n")
             return
         
-        console.print("\n [warning]ROLLBACK MIGRATION[/]\n")
+        self.console.print("\n [warning]ROLLBACK MIGRATION[/]\n")
         
         try:
             backup = json.loads(self.backup_file.read_text())
             timestamp = backup['timestamp']
             moves = backup['moves']
             
-            console.print(f" Found backup from: [dim]{timestamp}[/]")
-            console.print(f" This will reverse {len(moves)} moves\n")
+            self.console.print(f" Found backup from: [dim]{timestamp}[/]")
+            self.console.print(f" This will reverse {len(moves)} moves\n")
             
             if not Confirm.ask(" Proceed with rollback?"):
-                console.print(" [dim]Rollback cancelled[/]\n")
+                self.console.print(" [dim]Rollback cancelled[/]\n")
                 return
             
-            console.print()
+            self.console.print()
             
             # Reverse moves
             for move in reversed(moves):
                 old = self.dojo_root / move['from']
                 new = self.dojo_root / move['to']
                 
-                console.print(f" Restoring {move['from']}... ", end="")
+                self.console.print(f" Restoring {move['from']}... ", end="")
                 
                 try:
                     # Move back
                     shutil.move(str(new), str(old))
-                    console.print("[success]✓[/]")
+                    self.console.print("[success]✓[/]")
                 except Exception as e:
-                    console.print(f"[error]✗ {e}[/]")
+                    self.console.print(f"[error]✗ {e}[/]")
             
             # Remove backup
             self.backup_file.unlink()
             
-            console.print()
-            console.print(" [success]Rollback complete![/]\n")
+            self.console.print()
+            self.console.print(" [success]Rollback complete![/]\n")
             
         except Exception as e:
-            console.print(f" [error]Rollback failed: {e}[/]\n")
+            self.console.print(f" [error]Rollback failed: {e}[/]\n")
     
     def _show_tree(self):
         """Show new folder structure"""
@@ -198,14 +196,14 @@ class Migration:
             if not parent_path.exists():
                 continue
             
-            console.print(f" {parent}/")
+            self.console.print(f" {parent}/")
             
             # Show known subdirs
             for child in children:
                 child_path = parent_path / child
                 if child_path.exists():
                     count = len(list(child_path.iterdir()))
-                    console.print(f"   ├─ {child}/ [dim]({count} items)[/]")
+                    self.console.print(f"   ├─ {child}/ [dim]({count} items)[/]")
             
             # Show other items
             known_children = set(children)
@@ -213,6 +211,6 @@ class Migration:
                 if item.name not in known_children:
                     if item.is_dir():
                         count = len(list(item.iterdir()))
-                        console.print(f"   ├─ {item.name}/ [dim]({count} items)[/]")
+                        self.console.print(f"   ├─ {item.name}/ [dim]({count} items)[/]")
             
-            console.print()
+            self.console.print()
