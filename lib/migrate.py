@@ -10,9 +10,9 @@ import json
 from datetime import datetime
 
 class Migration:
-    def __init__(self, ctx):
+    def __init__(self, ctx, console):
         self.ctx = ctx
-        self.console = ctx.ui.console  # Use themed console from context
+        self.console = console  # Use themed console passed from main
         self.dojo_root = ctx.dojo_root
         self.backup_file = ctx.config_dir / 'migration_backup.json'
         

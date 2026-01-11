@@ -21,7 +21,7 @@ def main():
     ui = UI(ctx)
     nav = Navigator(ctx)
     health = Health(ctx)
-    migrate = Migration(ctx)
+    migrate = Migration(ctx, ui.console)  # Pass console
     
     # No arguments = interactive dashboard
     if len(sys.argv) == 1:
