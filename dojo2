@@ -21,41 +21,89 @@ def main():
     nav = Navigator(ctx)
     health = Health(ctx)
     
+    # Log command for history
+    if len(sys.argv) > 1:
+        ctx.log_command(' '.join(sys.argv[1:]))
+    
     if len(sys.argv) == 1:
+        # No args = interactive dashboard
         ui.show_dashboard()
     else:
         cmd = sys.argv[1]
         args = sys.argv[2:] if len(sys.argv) > 2 else []
         
-        if cmd in ['help', 'h', '--help']:
+        # Help commands
+        if cmd in ['help', 'h', '--help', '?']:
             ui.show_help()
+        
+        # Quick actions
         elif cmd == 'dev':
             nav.run_dev(args[0] if args else None)
         elif cmd == 'code':
             nav.open_vscode(args[0] if args else None)
         elif cmd == 'open':
             nav.open_explorer(args[0] if args else None)
+        
+        # Navigation
         elif cmd == 'goto':
             if not args:
                 ui.console.print(" [error]Usage: dojo goto <name>[/]\n")
                 return
             nav.goto(args[0])
         elif cmd == 'recent':
-            nav.show_recent()
+            days = int(args[0]) if args and args[0].isdigit() else 7
+            nav.show_recent(days=days)
         elif cmd == 'ls':
             nav.list_projects(args[0] if args else None)
         elif cmd == 'where':
             nav.show_where()
+        elif cmd in ['fav', 'favorite']:
+            nav.toggle_favorite(args[0] if args else None)
+        elif cmd == 'favorites':
+            nav.show_favorites()
+        
+        # Health & maintenance
         elif cmd == 'health':
             health.run_check()
         elif cmd == 'sync':
             health.sync_repos()
         elif cmd == 'clean':
             health.clean('--deep' in args)
+        elif cmd == 'fix':
+            if not args:
+                ui.console.print(" [error]Usage: dojo fix <git|python|node|all>[/]\n")
+                return
+            health.auto_fix(args[0])
+        
+        # Configuration
+        elif cmd == 'config':
+            ui.show_config()
+        elif cmd == 'learn':
+            if args and args[0] == 'on':
+                ctx.save_config({'learning_mode': True})
+                ui.console.print(" [success]Learning mode enabled! 💡[/]\n")
+            elif args and args[0] == 'off':
+                ctx.save_config({'learning_mode': False})
+                ui.console.print(" [dim]Learning mode disabled[/]\n")
+            else:
+                status = "ON" if ctx.learning_mode else "OFF"
+                ui.console.print(f" [accent]Learning mode:[/] {status}\n")
+                ui.console.print(" [dim]Usage: dojo learn [on|off][/]\n")
+        
+        # Learning
+        elif cmd == 'wizard':
+            ui.show_wizard()
         elif cmd == 'tutorial':
             ui.show_tutorial()
         elif cmd == 'examples':
             ui.show_examples()
+        
+        # Migration (placeholder for now)
+        elif cmd == 'migrate':
+            ui.console.print(" [warning]Migration tool coming soon![/]")
+            ui.console.print(" [dim]This will help reorganize your dojo structure[/]\n")
+        
+        # Unknown command
         else:
             ui.console.print(f" [error]Unknown command: {cmd}[/]")
             ui.console.print(" [dim]Try 'dojo help' or just 'dojo'[/]\n")
@@ -67,5 +115,8 @@ if __name__ == '__main__':
         print("\n")
         sys.exit(0)
     except Exception as e:
-        print(f"Error: {e}")
+        from rich.console import Console
+        console = Console()
+        console.print(f"\n [error]Error: {e}[/]\n")
+        console.print(" [dim]Run 'dojo help' for usage info[/]\n")
         sys.exit(1)
