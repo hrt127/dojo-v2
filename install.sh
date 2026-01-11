@@ -29,9 +29,16 @@ fi
 
 echo "✓ Python 3 found"
 
-# Install rich
-echo "✓ Installing rich library..."
-pip install -q rich || pip3 install -q rich
+# Install dependencies
+echo "✓ Installing dependencies..."
+echo "  - rich (terminal UI)"
+echo "  - PyYAML (config files)"
+
+pip install --break-system-packages rich pyyaml 2>/dev/null || \
+pip3 install --break-system-packages rich pyyaml 2>/dev/null || \
+pip install rich pyyaml 2>/dev/null || \
+pip3 install rich pyyaml || \
+echo "  ⚠️  Could not install via pip. Try: sudo apt install python3-rich python3-yaml"
 
 # Make dojo2 executable
 if [ -f "dojo2" ]; then
@@ -40,7 +47,7 @@ if [ -f "dojo2" ]; then
 fi
 
 # Create config directory
-mkdir -p ~/.config/dojo
+mkdir -p ~/.dojo
 echo "✓ Created config directory"
 
 echo ""
@@ -48,8 +55,9 @@ echo "🎉 Installation complete!"
 echo ""
 echo "Next steps:"
 echo "  1. Test it:    ./dojo2"
-echo "  2. Try:        ./dojo2 recent"
-echo "  3. When ready: mv dojo2 dojo"
+echo "  2. Try wizard: ./dojo2 wizard"
+echo "  3. Try recent: ./dojo2 recent"
+echo "  4. When ready: mv dojo2 dojo"
 echo ""
 echo "Both 'dojo' (old) and 'dojo2' (new) work side-by-side!"
 echo ""

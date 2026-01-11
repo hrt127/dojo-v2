@@ -1,10 +1,11 @@
 """
-Health - git/python/node checks and fixes
+Health - Enhanced with auto-fix capabilities
 """
 
 from pathlib import Path
 from rich.console import Console
 from rich.prompt import Confirm
+from rich.progress import Progress, SpinnerColumn, TextColumn
 import subprocess
 import shutil
 
@@ -16,12 +17,32 @@ class Health:
         self.dojo_root = ctx.dojo_root
     
     def run_check(self):
-        """Run all health checks"""
+        """Run all health checks with actionable fixes"""
         console.print("\n ⛄ [accent]HEALTH CHECK[/]\n")
         
-        with console.status(" Checking git repos...", spinner="dots"):
-            git_results = self._check_git()
+        git_issues = []
+        python_issues = []
+        node_issues = []
         
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            
+            task1 = progress.add_task(" Checking git repos...", total=None)
+            git_results = self._check_git()
+            progress.remove_task(task1)
+            
+            task2 = progress.add_task(" Checking python environments...", total=None)
+            python_results = self._check_python()
+            progress.remove_task(task2)
+            
+            task3 = progress.add_task(" Checking node projects...", total=None)
+            node_results = self._check_node()
+            progress.remove_task(task3)
+        
+        # Git results
         total_repos = len(git_results)
         synced = sum(1 for r in git_results if r['synced'])
         
@@ -32,11 +53,10 @@ class Health:
             for r in git_results:
                 if not r['synced']:
                     console.print(f"   [dim]{r['name']}: {r['issue']}[/]")
+                    git_issues.append(r)
         console.print()
         
-        with console.status(" Checking python environments...", spinner="dots"):
-            python_results = self._check_python()
-        
+        # Python results
         total_py = len(python_results)
         healthy_py = sum(1 for r in python_results if r['healthy'])
         
@@ -47,30 +67,67 @@ class Health:
             for r in python_results:
                 if not r['healthy']:
                     console.print(f"   [dim]{r['name']}: {r['issue']}[/]")
+                    python_issues.append(r)
         else:
             console.print(" [dim]No Python projects found[/]")
         console.print()
         
-        with console.status(" Checking node projects...", spinner="dots"):
-            node_results = self._check_node()
-        
+        # Node results
         total_node = len(node_results)
         if total_node > 0:
-            console.print(f" [success]✓[/] Node: {total_node} projects found")
-            outdated = [r for r in node_results if r.get('outdated', 0) > 0]
-            if outdated:
-                for r in outdated:
-                    console.print(f"   [warning]{r['name']}: {r['outdated']} packages outdated[/]")
+            missing_nm = sum(1 for r in node_results if r.get('missing', False))
+            if missing_nm == 0:
+                console.print(f" [success]✓[/] Node: All {total_node} projects have dependencies")
+            else:
+                console.print(f" [warning]⚠[/]  Node: {missing_nm}/{total_node} projects missing node_modules")
+                for r in node_results:
+                    if r.get('missing'):
+                        console.print(f"   [dim]{r['name']}: missing node_modules[/]")
+                        node_issues.append(r)
         else:
             console.print(" [dim]No Node projects found[/]")
         console.print()
         
-        issues = (not all(r['synced'] for r in git_results) or 
-                 not all(r['healthy'] for r in python_results))
+        # Offer quick fixes
+        has_issues = git_issues or python_issues or node_issues
         
-        if issues and Confirm.ask(" [text]Run automated fixes?[/]"):
-            console.print()
-            self._auto_fix(git_results, python_results)
+        if has_issues:
+            console.print(" [accent]⚡ QUICK FIXES AVAILABLE:[/]\n")
+            if git_issues:
+                console.print("   dojo fix git        # Sync all repos")
+            if python_issues:
+                console.print("   dojo fix python     # Fix venv issues")
+            if node_issues:
+                console.print("   dojo fix node       # Install missing deps")
+            console.print("   dojo fix all        # Fix everything\n")
+            
+            if Confirm.ask(" [text]Run automated fixes now?[/]"):
+                console.print()
+                self._auto_fix(git_results, python_results, node_results)
+        else:
+            console.print(" [success]Everything looks healthy! ✨[/]\n")
+    
+    def auto_fix(self, target):
+        """Run specific auto-fix"""
+        console.print(f"\n [accent]FIXING: {target.upper()}[/]\n")
+        
+        if target == 'git':
+            git_results = self._check_git()
+            self._fix_git(git_results)
+        elif target == 'python':
+            python_results = self._check_python()
+            self._fix_python(python_results)
+        elif target == 'node':
+            node_results = self._check_node()
+            self._fix_node(node_results)
+        elif target == 'all':
+            git_results = self._check_git()
+            python_results = self._check_python()
+            node_results = self._check_node()
+            self._auto_fix(git_results, python_results, node_results)
+        else:
+            console.print(f" [error]Unknown target: {target}[/]")
+            console.print(" [dim]Try: git, python, node, or all[/]\n")
     
     def _check_git(self):
         """Check all git repos"""
@@ -90,19 +147,19 @@ class Health:
                 name = path.relative_to(self.dojo_root)
                 
                 if 'ahead' in status:
-                    results.append({'name': str(name), 'synced': False, 'issue': 'unpushed commits'})
+                    results.append({'name': str(name), 'synced': False, 'issue': 'unpushed commits', 'path': path})
                 elif 'behind' in status:
-                    results.append({'name': str(name), 'synced': False, 'issue': 'behind origin'})
+                    results.append({'name': str(name), 'synced': False, 'issue': 'behind origin', 'path': path})
                 elif 'Your branch is up to date' in status or 'branch.head' in status:
-                    results.append({'name': str(name), 'synced': True, 'issue': None})
+                    results.append({'name': str(name), 'synced': True, 'issue': None, 'path': path})
                 else:
                     has_changes = bool([l for l in status.split('\n') if l.strip() and not l.startswith('#')])
                     if has_changes:
-                        results.append({'name': str(name), 'synced': False, 'issue': 'uncommitted changes'})
+                        results.append({'name': str(name), 'synced': False, 'issue': 'uncommitted changes', 'path': path})
                     else:
-                        results.append({'name': str(name), 'synced': True, 'issue': None})
+                        results.append({'name': str(name), 'synced': True, 'issue': None, 'path': path})
             except:
-                results.append({'name': str(path.relative_to(self.dojo_root)), 'synced': False, 'issue': 'error'})
+                results.append({'name': str(path.relative_to(self.dojo_root)), 'synced': False, 'issue': 'error', 'path': path})
         
         return results
     
@@ -123,7 +180,7 @@ class Health:
             venv_path = path / 'venv'
             
             if not venv_path.exists():
-                results.append({'name': str(name), 'healthy': False, 'issue': 'no venv'})
+                results.append({'name': str(name), 'healthy': False, 'issue': 'no venv', 'path': path})
                 continue
             
             req_file = path / 'requirements.txt'
@@ -132,11 +189,11 @@ class Health:
                 has_packages = any(site_packages.rglob('site-packages'))
                 
                 if has_packages:
-                    results.append({'name': str(name), 'healthy': True, 'issue': None})
+                    results.append({'name': str(name), 'healthy': True, 'issue': None, 'path': path})
                 else:
-                    results.append({'name': str(name), 'healthy': False, 'issue': 'missing deps'})
+                    results.append({'name': str(name), 'healthy': False, 'issue': 'missing deps', 'path': path})
             else:
-                results.append({'name': str(name), 'healthy': True, 'issue': None})
+                results.append({'name': str(name), 'healthy': True, 'issue': None, 'path': path})
         
         return results
     
@@ -155,9 +212,9 @@ class Health:
             name = path.relative_to(self.dojo_root)
             
             if not (path / 'node_modules').exists():
-                results.append({'name': str(name), 'outdated': 0, 'missing': True})
+                results.append({'name': str(name), 'outdated': 0, 'missing': True, 'path': path})
             else:
-                results.append({'name': str(name), 'outdated': 0, 'missing': False})
+                results.append({'name': str(name), 'outdated': 0, 'missing': False, 'path': path})
         
         return results
     
@@ -169,33 +226,73 @@ class Health:
                 projects.append(pkg.parent)
         return projects
     
-    def _auto_fix(self, git_results, python_results):
-        """Run automated fixes"""
+    def _auto_fix(self, git_results, python_results, node_results):
+        """Run all automated fixes"""
+        self._fix_git(git_results)
+        self._fix_python(python_results)
+        self._fix_node(node_results)
+        
+        console.print("\n [success]All fixes complete! ✨[/]\n")
+    
+    def _fix_git(self, git_results):
+        """Fix git issues"""
         behind = [r for r in git_results if r.get('issue') == 'behind origin']
         if behind:
             console.print(" [accent]Pulling repos...[/]")
             for r in behind:
-                path = self.dojo_root / r['name']
                 console.print(f"   {r['name']}...", end="")
                 try:
-                    subprocess.run(['git', 'pull'], cwd=path, capture_output=True, timeout=30)
+                    subprocess.run(['git', 'pull'], cwd=r['path'], capture_output=True, timeout=30)
                     console.print(" [success]✓[/]")
                 except:
                     console.print(" [error]✗[/]")
-        
+            console.print()
+    
+    def _fix_python(self, python_results):
+        """Fix Python issues"""
         missing_venv = [r for r in python_results if r.get('issue') == 'no venv']
         if missing_venv:
-            console.print("\n [accent]Creating venvs...[/]")
+            console.print(" [accent]Creating venvs...[/]")
             for r in missing_venv:
-                path = self.dojo_root / r['name']
                 console.print(f"   {r['name']}...", end="")
                 try:
-                    subprocess.run(['python', '-m', 'venv', 'venv'], cwd=path, timeout=60)
+                    subprocess.run(['python3', '-m', 'venv', 'venv'], cwd=r['path'], capture_output=True, timeout=60)
                     console.print(" [success]✓[/]")
                 except:
                     console.print(" [error]✗[/]")
+            console.print()
         
-        console.print("\n [success]Done![/]\n")
+        missing_deps = [r for r in python_results if r.get('issue') == 'missing deps']
+        if missing_deps:
+            console.print(" [accent]Installing dependencies...[/]")
+            for r in missing_deps:
+                console.print(f"   {r['name']}...", end="")
+                try:
+                    venv_pip = r['path'] / 'venv' / 'bin' / 'pip'
+                    subprocess.run(
+                        [str(venv_pip), 'install', '-r', 'requirements.txt'],
+                        cwd=r['path'],
+                        capture_output=True,
+                        timeout=300
+                    )
+                    console.print(" [success]✓[/]")
+                except:
+                    console.print(" [error]✗[/]")
+            console.print()
+    
+    def _fix_node(self, node_results):
+        """Fix Node issues"""
+        missing = [r for r in node_results if r.get('missing')]
+        if missing:
+            console.print(" [accent]Installing node_modules...[/]")
+            for r in missing:
+                console.print(f"   {r['name']}...", end="")
+                try:
+                    subprocess.run(['npm', 'install'], cwd=r['path'], capture_output=True, timeout=300)
+                    console.print(" [success]✓[/]")
+                except:
+                    console.print(" [error]✗[/]")
+            console.print()
     
     def sync_repos(self):
         """Pull all git repos"""
@@ -238,13 +335,24 @@ class Health:
         to_delete = []
         total_size = 0
         
-        with console.status(" Scanning...", spinner="dots"):
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task(" Scanning...", total=None)
+            
             for pattern in patterns:
                 for path in self.dojo_root.rglob(pattern):
                     if path.is_dir():
-                        size = sum(f.stat().st_size for f in path.rglob('*') if f.is_file())
-                        to_delete.append((path, size))
-                        total_size += size
+                        try:
+                            size = sum(f.stat().st_size for f in path.rglob('*') if f.is_file())
+                            to_delete.append((path, size))
+                            total_size += size
+                        except:
+                            pass
+            
+            progress.remove_task(task)
         
         if not to_delete:
             console.print(" [dim]Nothing to clean[/]\n")
