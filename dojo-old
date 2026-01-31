@@ -1,0 +1,985 @@
+#!/usr/bin/env bash
+
+# =====================================================
+# CONFIG
+# =====================================================
+
+DOJO_VERSION="0.1.0"
+DOJO_ROOT="$HOME/dojo"
+DOJO_CLI_REPO="$HOME/dojo-cli"
+
+# -------------------------
+# Colors (optional)
+# -------------------------
+if command -v tput >/dev/null 2>&1; then
+  C_BLUE=$(tput setaf 4)
+  C_GREEN=$(tput setaf 2)
+  C_YELLOW=$(tput setaf 3)
+  C_RED=$(tput setaf 1)
+  C_RESET=$(tput sgr0)
+else
+  C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_RESET=""
+fi
+
+# -------------------------
+# Helpers
+# -------------------------
+
+map_tree() {
+    local depth="$1"
+    local root="$2"
+
+    if command -v tree >/dev/null 2>&1; then
+        tree -C -L "$depth" "$root" \
+            -I "node_modules|.next|dist|build|.git|__pycache__"
+    else
+        find "$root" -maxdepth "$depth" -print
+    fi
+}
+
+log_event() {
+    local msg="$1"
+    local log_dir="$DOJO_ROOT/logs"
+    mkdir -p "$log_dir"
+    printf "%s | %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" >> "$log_dir/dojo.log"
+}
+
+# =====================================================
+# VERSION / UPGRADE
+# =====================================================
+
+cmd_version() {
+    echo "Dojo CLI version: $DOJO_VERSION"
+    if [ -d "$DOJO_CLI_REPO/.git" ]; then
+        local sha
+        sha=$(git -C "$DOJO_CLI_REPO" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        echo "Source commit: $sha"
+    fi
+}
+
+cmd_upgrade() {
+    echo "⬆ Upgrading Dojo CLI from repo: $DOJO_CLI_REPO"
+    if [ ! -d "$DOJO_CLI_REPO/.git" ]; then
+        echo "No git repo found at $DOJO_CLI_REPO"
+        echo "Clone dojo-cli repo to $DOJO_CLI_REPO first."
+        return 1
+    fi
+
+    cd "$DOJO_CLI_REPO" || return 1
+    git pull --rebase || { echo "git pull failed"; return 1; }
+
+    if [ ! -f "$DOJO_CLI_REPO/dojo" ]; then
+        echo "No dojo script found in $DOJO_CLI_REPO"
+        return 1
+    fi
+
+    mkdir -p "$DOJO_ROOT"
+    cp "$DOJO_CLI_REPO/dojo" "$DOJO_ROOT/dojo"
+    chmod +x "$DOJO_ROOT/dojo"
+
+    echo "✅ Dojo CLI upgraded and installed to $DOJO_ROOT/dojo"
+    echo "Current version:"
+    "$DOJO_ROOT/dojo" version
+}
+
+# =====================================================
+# HELP / LEARNING / DISCOVERY
+# =====================================================
+
+cmd_help() {
+    echo "🥋 ${C_BLUE}DOJO HELP — Practical Commands${C_RESET}"
+    echo "Version: $DOJO_VERSION"
+    echo ""
+    echo "${C_GREEN}📦 NAVIGATION${C_RESET}"
+    echo "  dojo map               – Show top-level Dojo structure"
+    echo "  dojo apps              – List apps (tree)"
+    echo "  dojo protocols         – List protocol folders"
+    echo "  dojo tools             – List tools"
+    echo "  dojo list              – List app names only"
+    echo "  dojo open <app>        – Open app folder in Explorer"
+    echo "  dojo tree <app>        – Show full tree of an app"
+    echo ""
+    echo "${C_GREEN}🚀 DEVELOPMENT${C_RESET}"
+    echo "  dojo serve <app>       – Start dev server (npm run dev)"
+    echo "  dojo code <app>        – Open app in VS Code (WSL)"
+    echo "  dojo new <app>         – Create basic app skeleton"
+    echo "  dojo new <app> --template nextjs  – Create Next.js starter"
+    echo "  dojo types <app>       – Show file types in an app"
+    echo ""
+    echo "${C_GREEN}⚙️ WORKFLOWS${C_RESET}"
+    echo "  dojo intel <user>      – Run farcaster-intel bot"
+    echo "  dojo bot <name>        – Run bot under bots/<name>"
+    echo "  dojo python <script>   – Run Python script w/ auto venv"
+    echo "  dojo streamlit <name>  – Run Streamlit app"
+    echo "  dojo sync              – Run smart-money-dashboard daily digest"
+    echo ""
+    echo "${C_GREEN}🧱 TEMPLATES${C_RESET}"
+    echo "  dojo new-bot <name>    – Scaffold Python bot"
+    echo "  dojo new-script <name> – Scaffold Python utility script"
+    echo "  dojo templates         – List available templates"
+    echo ""
+    echo "${C_GREEN}🔍 SEARCH & LEARNING${C_RESET}"
+    echo "  dojo find <pattern>    – Search text across Dojo"
+    echo "  dojo how <topic>       – Examples (mv, cp, search, git, venv)"
+    echo "  dojo cheatsheet        – Common shell commands"
+    echo "  dojo explain           – Explain all Dojo commands"
+    echo ""
+    echo "${C_GREEN}🧹 CLEANUP${C_RESET}"
+    echo "  dojo clean             – Remove node_modules + __pycache__"
+    echo "  dojo clean-deep        – Also remove .next, dist, build"
+    echo "  dojo clean-explain     – Explain what cleaning does"
+    echo ""
+    echo "${C_GREEN}🩺 DOJO DOCTOR${C_RESET}"
+    echo "  dojo git-check         – Repo sync dashboard"
+    echo "  dojo doctor            – Run all checks"
+    echo "  dojo doctor git        – Check repo sync"
+    echo "  dojo doctor python     – Check venvs"
+    echo "  dojo doctor node       – Check node_modules"
+    echo "  dojo doctor clean      – Clean build junk"
+    echo "  dojo pull-all          – Pull all repos with origin"
+    echo "  dojo status-all        – Show git status for all repos"
+    echo "  dojo repos             – Map all repos (branch + remote)"
+    echo "  dojo doctor disk       – Show largest folders in Dojo"
+    echo ""
+    echo "${C_GREEN}📘 META${C_RESET}"
+    echo "  dojo version           – Show CLI version and source commit"
+    echo "  dojo upgrade           – Pull latest dojo-cli and reinstall"
+}
+
+cmd_cheatsheet() {
+    echo "📘 ${C_BLUE}DOJO CHEATSHEET — Everyday Commands${C_RESET}"
+    echo ""
+    echo "${C_GREEN}📁 FILE OPERATIONS${C_RESET}"
+    echo "  mv old.txt new.txt         – Move or rename file"
+    echo "  mv folder1/ folder2/       – Move/rename folder"
+    echo "  cp file.txt backup.txt     – Copy file"
+    echo "  cp -r src/ dest/           – Copy folder"
+    echo "  rm file.txt                – Delete file"
+    echo "  rm -r folder/              – Delete folder"
+    echo ""
+    echo "${C_GREEN}📂 NAVIGATION${C_RESET}"
+    echo "  cd folder                  – Enter folder"
+    echo "  cd ..                      – Up one level"
+    echo "  pwd                        – Print current path"
+    echo "  ls -la                     – List files (detailed)"
+    echo ""
+    echo "${C_GREEN}🔍 SEARCH${C_RESET}"
+    echo "  grep -R \"text\" .           – Search in current tree"
+    echo "  grep -Rni \"token\" ~/dojo   – Search Dojo for 'token'"
+    echo ""
+    echo "${C_GREEN}🌱 GIT${C_RESET}"
+    echo "  git status                 – See changes"
+    echo "  git add .                  – Stage all changes"
+    echo "  git commit -m \"msg\"        – Commit"
+    echo "  git push                   – Push to GitHub"
+    echo "  git pull                   – Pull from GitHub"
+    echo ""
+    echo "${C_GREEN}🐍 PYTHON / VENV${C_RESET}"
+    echo "  python -m venv .venv       – Create virtual env"
+    echo "  source .venv/bin/activate  – Activate venv"
+    echo "  pip install -r requirements.txt"
+    echo ""
+    echo "${C_GREEN}🛠️ SYSTEM${C_RESET}"
+    echo "  top                        – Running processes"
+    echo "  df -h                      – Disk usage"
+    echo "  du -sh *                   – Folder sizes"
+}
+
+cmd_how() {
+    local topic="$1"
+    case "$topic" in
+        mv|move|rename)
+            echo "📁 MOVE / RENAME"
+            echo "  mv old.txt new.txt"
+            echo "  mv src/ dest/              – Move or rename folder"
+            ;;
+        cp|copy)
+            echo "📁 COPY"
+            echo "  cp file.txt backup.txt"
+            echo "  cp -r src/ dest/           – Copy folder recursively"
+            ;;
+        search|grep)
+            echo "🔍 SEARCH WITH GREP"
+            echo "  grep -R \"hello\" .           – Search in current directory tree"
+            echo "  grep -Rni \"token\" ~/dojo    – Search entire Dojo"
+            ;;
+        git)
+            echo "🌱 GIT BASICS"
+            echo "  git status"
+            echo "  git add ."
+            echo "  git commit -m \"msg\""
+            echo "  git push"
+            echo "  git pull"
+            ;;
+        venv|python)
+            echo "🐍 PYTHON VENV PATTERN"
+            echo "  cd project/"
+            echo "  python -m venv .venv"
+            echo "  source .venv/bin/activate"
+            echo "  pip install -r requirements.txt"
+            ;;
+        *)
+            echo "Unknown topic. Try: mv, cp, search, git, venv"
+            ;;
+    esac
+}
+
+cmd_explain() {
+    echo "📘 ${C_BLUE}DOJO COMMAND EXPLANATIONS${C_RESET}"
+    echo ""
+    echo "map / apps / protocols / tools / status / list – Navigation & structure"
+    echo "open <app>       – Open app folder in Explorer"
+    echo "serve <app>      – Start dev server (npm run dev)"
+    echo "code <app>       – Open app in VS Code (WSL)"
+    echo "new <app>        – Create basic app skeleton"
+    echo "new <app> --template nextjs  – Create Next.js starter"
+    echo "tree <app>       – Show full tree of app"
+    echo "types <app>      – Show file types in app"
+    echo "find <pattern>   – Search text in Dojo"
+    echo "intel <user>     – Run farcaster-intel bot"
+    echo "bot <name>       – Run bot under bots/<name>"
+    echo "python <script>  – Run Python script w/ auto venv"
+    echo "streamlit <name> – Run Streamlit app"
+    echo "sync             – Run smart-money-dashboard daily digest"
+    echo "new-bot <name>   – Create Python bot template"
+    echo "new-script <name>– Create Python script template"
+    echo "templates        – List templates"
+    echo "clean            – Remove node_modules + __pycache__"
+    echo "clean-deep       – Also remove .next, dist, build"
+    echo "clean-explain    – Explain cleaning behavior"
+    echo "git-check        – Repo sync dashboard"
+    echo "doctor [...]     – Git/env/clean/disk checks"
+    echo "cheatsheet       – Common shell commands"
+    echo "how <topic>      – Examples for mv/cp/search/git/venv"
+    echo "version          – Show CLI version + source commit"
+    echo "upgrade          – Pull latest dojo-cli and reinstall"
+}
+
+cmd_templates() {
+    echo "📦 Available Dojo Templates"
+    echo ""
+    echo "• bot        – Python bot template (main.py + requirements + .env.example)"
+    echo "• script     – Python utility script template"
+    echo "• app-basic  – Basic app skeleton (src + docs + README)"
+    echo "• nextjs     – Minimal Next.js starter"
+}
+
+# =====================================================
+# NAVIGATION / STRUCTURE
+# =====================================================
+
+cmd_map()         { map_tree 2 "$DOJO_ROOT"; }
+cmd_apps()        { map_tree 2 "$DOJO_ROOT/apps"; }
+cmd_protocols()   { map_tree 3 "$DOJO_ROOT/protocols"; }
+cmd_tools()       { map_tree 2 "$DOJO_ROOT/tools"; }
+
+cmd_status() {
+    echo "🥋 ${C_BLUE}DOJO STATUS${C_RESET}"
+    [ -d "$DOJO_ROOT/apps" ]        && echo "Apps:        $(ls -1 "$DOJO_ROOT/apps"        | wc -l)" || echo "Apps:        0"
+    [ -d "$DOJO_ROOT/experiments" ] && echo "Experiments: $(ls -1 "$DOJO_ROOT/experiments" | wc -l)" || echo "Experiments: 0"
+    [ -d "$DOJO_ROOT/protocols" ]   && echo "Protocols:   $(ls -1 "$DOJO_ROOT/protocols"   | wc -l)" || echo "Protocols:   0"
+    [ -d "$DOJO_ROOT/tools" ]       && echo "Tools:       $(ls -1 "$DOJO_ROOT/tools"       | wc -l)" || echo "Tools:       0"
+}
+
+cmd_list() {
+    echo "📦 Apps in your Dojo:"
+    [ -d "$DOJO_ROOT/apps" ] && ls -1 "$DOJO_ROOT/apps"
+}
+
+cmd_open() {
+    local target="$DOJO_ROOT/apps/$1"
+    if [ -d "$target" ]; then
+        cd "$target" || return
+        explorer.exe .
+    else
+        echo "No such app: $1"
+    fi
+}
+
+cmd_tree() {
+    local app="$1"
+    if [ -z "$app" ]; then
+        echo "Usage: dojo tree <app>"
+        return
+    fi
+    if [ -d "$DOJO_ROOT/apps/$app" ]; then
+        if command -v tree >/dev/null 2>&1; then
+            tree -C "$DOJO_ROOT/apps/$app"
+        else
+            find "$DOJO_ROOT/apps/$app" -print
+        fi
+    else
+        echo "No such app: $app"
+    fi
+}
+
+cmd_types() {
+    local app="$1"
+    if [ -z "$app" ]; then
+        echo "Usage: dojo types <app>"
+        return
+    fi
+    if [ -d "$DOJO_ROOT/apps/$app" ]; then
+        echo "📁 File types in $app:"
+        find "$DOJO_ROOT/apps/$app" -type f | sed 's/.*\.//' | sort | uniq -c
+    else
+        echo "No such app: $app"
+    fi
+}
+
+# =====================================================
+# DEVELOPMENT
+# =====================================================
+
+cmd_serve() {
+    local app="$1"
+    local path="$DOJO_ROOT/apps/$app"
+
+    if [ -z "$app" ]; then
+        echo "Usage: dojo serve <app>"
+        return
+    fi
+
+    if [ -d "$path" ]; then
+        cd "$path" || return
+        if [ ! -d "node_modules" ]; then
+            echo "Installing dependencies..."
+            npm install
+        fi
+        echo "Starting dev server..."
+        log_event "serve $app"
+        npm run dev
+    else
+        echo "No such app: $app"
+    fi
+}
+
+cmd_new_app_basic() {
+    local app="$1"
+    if [ -z "$app" ]; then
+        echo "Usage: dojo new <app>"
+        return
+    fi
+
+    mkdir -p "$DOJO_ROOT/apps/$app"/{src,docs}
+    if [ ! -f "$DOJO_ROOT/apps/$app/README.md" ]; then
+        echo "# $app" > "$DOJO_ROOT/apps/$app/README.md"
+    fi
+    echo "Created app skeleton at apps/$app"
+}
+
+cmd_new_app_template() {
+    local app="$1"
+    local template="$2"
+    local tpl_name="$3"
+
+    if [ "$template" = "--template" ] && [ "$tpl_name" = "nextjs" ]; then
+        local path="$DOJO_ROOT/apps/$app"
+        mkdir -p "$path"
+
+        cat > "$path/package.json" << 'EOF'
+{
+  "name": "nextjs-app",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  }
+}
+EOF
+
+        mkdir -p "$path/pages"
+        cat > "$path/pages/index.js" << 'EOF'
+export default function Home() {
+  return <h1>Hello from your Next.js Dojo template!</h1>;
+}
+EOF
+
+        echo "Created Next.js template at apps/$app"
+        return
+    fi
+
+    echo "Unknown template. Try: --template nextjs"
+}
+
+cmd_code() {
+    local app="$1"
+    if [ -z "$app" ]; then
+        echo "Usage: dojo code <app>"
+        return
+    fi
+
+    local path="$DOJO_ROOT/apps/$app"
+    if [ -d "$path" ]; then
+        cd "$path" || return
+        log_event "code $app"
+        code .
+    else
+        echo "No such app: $app"
+    fi
+}
+
+cmd_find() {
+    local pattern="$1"
+    if [ -z "$pattern" ]; then
+        echo "Usage: dojo find <pattern>"
+        return
+    fi
+    grep -Rni "$pattern" "$DOJO_ROOT"
+}
+
+# =====================================================
+# CLEANUP
+# =====================================================
+
+cmd_clean() {
+    find "$DOJO_ROOT" -type d -name "__pycache__" -exec rm -rf {} +
+    find "$DOJO_ROOT" -type d -name "node_modules" -exec rm -rf {} +
+    echo "Dojo cleaned (node_modules + __pycache__)."
+}
+
+cmd_clean_explain() {
+    echo "🧹 CLEAN EXPLAIN"
+    echo ""
+    echo "dojo clean:"
+    echo "  • removes node_modules (JS deps)"
+    echo "  • removes __pycache__ (Python bytecode)"
+    echo ""
+    echo "dojo clean-deep:"
+    echo "  • also removes .next, dist, build (build artifacts)"
+}
+
+cmd_clean_deep() {
+    echo "🧹 Deep Cleaning Dojo..."
+    find "$DOJO_ROOT" -type d -name "node_modules" -exec rm -rf {} +
+    find "$DOJO_ROOT" -type d -name "__pycache__" -exec rm -rf {} +
+    find "$DOJO_ROOT" -type d -name ".next" -exec rm -rf {} +
+    find "$DOJO_ROOT" -type d -name "dist" -exec rm -rf {} +
+    find "$DOJO_ROOT" -type d -name "build" -exec rm -rf {} +
+    echo "Done."
+}
+
+# =====================================================
+# GIT DASHBOARD + DOCTOR
+# =====================================================
+
+cmd_git_check() {
+    echo "🔍 Checking all git repos under $DOJO_ROOT..."
+    echo ""
+
+    find "$DOJO_ROOT" -type d -name ".git" | while read -r d; do
+        repo=$(dirname "$d")
+        branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+        if [ -z "$branch" ] || [ "$branch" = "HEAD" ]; then
+            echo "📁 $repo — ${C_YELLOW}detached HEAD or no branch${C_RESET}"
+            echo ""
+            continue
+        fi
+
+        # if no origin, just show branch
+        if ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
+            echo "📁 $repo — $branch: ${C_YELLOW}no origin remote${C_RESET}"
+            echo ""
+            continue
+        fi
+
+        git -C "$repo" fetch --quiet || true
+
+        ahead=$(git -C "$repo" rev-list --left-only --count "$branch...origin/$branch" 2>/dev/null || echo "0")
+        behind=$(git -C "$repo" rev-list --right-only --count "$branch...origin/$branch" 2>/dev/null || echo "0")
+
+        # guard against empty
+        [ -z "$ahead" ] && ahead=0
+        [ -z "$behind" ] && behind=0
+
+        echo -n "📁 $repo — $branch: "
+
+        if [ "$ahead" -eq 0 ] && [ "$behind" -eq 0 ]; then
+            echo "${C_GREEN}✔ up to date${C_RESET}"
+        else
+            echo "⬆ $ahead ahead | ⬇ $behind behind"
+        fi
+
+        echo ""
+    done
+}
+
+
+cmd_doctor_git() {
+    echo "🩺 DOJO DOCTOR — GIT"
+    echo ""
+    cmd_git_check
+}
+
+cmd_doctor_python() {
+    echo "🐍 Python Environment Check"
+    echo ""
+    find "$DOJO_ROOT" -type f -name "requirements.txt" | while read -r req; do
+        local dir
+        dir=$(dirname "$req")
+
+        if [ -d "$dir/.venv" ] || [ -d "$dir/venv" ]; then
+            echo "✔ venv OK in: $dir"
+        else
+            echo "⚠️ Missing venv in: $dir"
+        fi
+    done
+}
+
+cmd_doctor_node() {
+    echo "📦 Node Environment Check"
+    echo ""
+    find "$DOJO_ROOT/apps" -maxdepth 3 -type f -name "package.json" | while read -r pkg; do
+        local dir
+        dir=$(dirname "$pkg")
+        if [ -d "$dir/node_modules" ]; then
+            echo "✔ node_modules OK in: $dir"
+        else
+            echo "⚠️ Missing node_modules in: $dir"
+        fi
+    done
+}
+
+cmd_doctor_clean() {
+    echo "🧹 Removing leftover build junk..."
+    find "$DOJO_ROOT" -type d -name "*.egg-info" -exec rm -rf {} +
+    find "$DOJO_ROOT" -type f -name "*.pyc" -delete
+    echo "Done."
+}
+
+cmd_doctor_disk() {
+    echo "💾 Disk usage — largest folders in Dojo:"
+    du -sh "$DOJO_ROOT"/* 2>/dev/null | sort -hr | head -n 15
+}
+
+cmd_doctor() {
+    echo "🩺 DOJO DOCTOR — Full Check"
+    echo ""
+    cmd_doctor_git
+    echo ""
+    cmd_doctor_python
+    echo ""
+    cmd_doctor_node
+    echo ""
+    cmd_doctor_clean
+    echo ""
+    cmd_doctor_disk
+}
+
+# =====================================================
+# TEMPLATES (BOTS / SCRIPTS)
+# =====================================================
+
+cmd_new_bot() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: dojo new-bot <name>"
+        return
+    fi
+
+    local bot_dir="$DOJO_ROOT/bots/$name"
+    mkdir -p "$bot_dir"
+
+    cat > "$bot_dir/main.py" << 'EOF'
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+def main():
+    """
+    Entry point for this bot.
+
+    Pattern:
+    - Read config from environment or config file
+    - Connect to APIs
+    - Run main loop or single-shot task
+    """
+    print("Bot started. Implement your logic here.")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+    cat > "$bot_dir/requirements.txt" << 'EOF'
+python-dotenv
+EOF
+
+    cat > "$bot_dir/.env.example" << 'EOF'
+# Copy this file to .env and fill in values
+API_KEY=your_key_here
+EOF
+
+    cat > "$bot_dir/README.md" << EOF
+# $name Bot
+
+## Pattern
+
+- Create a virtual environment:
+  python -m venv .venv
+  source .venv/bin/activate
+
+- Install dependencies:
+  pip install -r requirements.txt
+
+- Configure environment:
+  cp .env.example .env
+  # edit .env
+
+- Run:
+  python main.py
+EOF
+
+    echo "Created bot template at bots/$name"
+}
+
+cmd_new_script() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: dojo new-script <name>"
+        return
+    fi
+
+    local script_dir="$DOJO_ROOT/tools/$name"
+    mkdir -p "$script_dir"
+
+    cat > "$script_dir/main.py" << 'EOF'
+"""
+Utility script.
+
+Pattern:
+- Accept arguments from command line
+- Perform a focused task
+- Print clear output
+"""
+
+import argparse
+
+def main():
+    parser = argparse.ArgumentParser(description="Utility script")
+    parser.add_argument("--example", help="Example argument")
+    args = parser.parse_args()
+
+    print("Script running. args:", args)
+
+if __name__ == "__main__":
+    main()
+EOF
+
+    cat > "$script_dir/README.md" << EOF
+# $name Script
+
+## Usage
+
+- (Optional) create venv:
+  python -m venv .venv
+  source .venv/bin/activate
+
+- Run:
+  python main.py --example test
+EOF
+
+    echo "Created script template at tools/$name"
+}
+
+
+# =====================================================
+# REPO MANAGEMENT COMMANDS
+# =====================================================
+
+cmd_pull_all() {
+    echo "⬇ Pulling all git repos under $DOJO_ROOT..."
+    echo ""
+
+    find "$DOJO_ROOT" -type d -name ".git" | while read -r d; do
+        repo=$(dirname "$d")
+
+        if git -C "$repo" remote get-url origin >/dev/null 2>&1; then
+            echo "📁 $repo"
+            git -C "$repo" pull --rebase --autostash || echo "⚠️ Pull failed in $repo"
+            echo ""
+        else
+            echo "📁 $repo — no origin remote, skipping"
+            echo ""
+        fi
+    done
+
+    echo "✔ Done pulling all repos."
+}
+
+cmd_status_all() {
+    echo "📊 Git Status Dashboard"
+    echo ""
+
+    find "$DOJO_ROOT" -type d -name ".git" | while read -r d; do
+        repo=$(dirname "$d")
+        echo "📁 $repo"
+        git -C "$repo" status -s
+        echo ""
+    done
+}
+
+cmd_repos() {
+    echo "🗺 Repo Map"
+    echo ""
+
+    find "$DOJO_ROOT" -type d -name ".git" | while read -r d; do
+        repo=$(dirname "$d")
+        branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
+        remote=$(git -C "$repo" remote get-url origin 2>/dev/null || echo "none")
+
+        echo "📁 $repo"
+        echo "   • branch: $branch"
+        echo "   • origin: $remote"
+        echo ""
+    done
+}
+
+
+# =====================================================
+# WORKFLOWS (LAUNCHERS)
+# =====================================================
+
+cmd_intel() {
+    local user="$1"
+    if [ -z "$user" ]; then
+        echo "Usage: dojo intel <farcaster_username>"
+        return
+    fi
+
+    local bot_dir="$DOJO_ROOT/bots/farcaster-intel"
+    local entry="$bot_dir/farcaster_intel.py"
+
+    if [ ! -f "$entry" ]; then
+        echo "Entry script not found at: $entry"
+        return
+    fi
+
+    cd "$bot_dir" || return
+
+    if [ -d ".venv" ]; then
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+    elif [ -d "venv" ]; then
+        # shellcheck disable=SC1091
+        source venv/bin/activate
+    fi
+
+    log_event "intel $user"
+    python "$entry" --username "$user"
+}
+
+cmd_bot() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: dojo bot <bot-name>"
+        echo "Runs: ~/dojo/bots/<bot-name>/main.py (or app.py/farcaster_intel.py if main.py missing)"
+        return
+    fi
+
+    local bot_dir="$DOJO_ROOT/bots/$name"
+    if [ ! -d "$bot_dir" ]; then
+        echo "No such bot: $bot_dir"
+        return
+    fi
+
+    cd "$bot_dir" || return
+
+    local entry=""
+    if   [ -f "main.py" ]; then
+        entry="main.py"
+    elif [ -f "app.py" ]; then
+        entry="app.py"
+    elif [ -f "farcaster_intel.py" ]; then
+        entry="farcaster_intel.py"
+    elif [ -f "zapper_donut_tracker.py" ]; then
+        entry="zapper_donut_tracker.py"
+    else
+        echo "No obvious entry script (main.py/app.py/...)."
+        return
+    fi
+
+    if [ -d ".venv" ]; then
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+    elif [ -d "venv" ]; then
+        # shellcheck disable=SC1091
+        source venv/bin/activate
+    fi
+
+    log_event "bot $name ($entry)"
+    python "$entry"
+}
+
+cmd_sync() {
+    local sync_dir="$DOJO_ROOT/bots/smart-money-dashboard"
+    local entry="$sync_dir/daily_digest.py"
+
+    if [ ! -f "$entry" ]; then
+        echo "Sync script not found at: $entry"
+        echo "Update dojo sync if you change the path."
+        return
+    fi
+
+    cd "$sync_dir" || return
+
+    if [ -d ".venv" ]; then
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+    elif [ -d "venv" ]; then
+        # shellcheck disable=SC1091
+        source venv/bin/activate
+    fi
+
+    log_event "sync smart-money-dashboard"
+    python "$entry"
+}
+
+cmd_streamlit() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: dojo streamlit <name>"
+        echo "Examples:"
+        echo "  dojo streamlit smart-money-dashboard"
+        return
+    fi
+
+    local app_dir=""
+    local entry="app.py"
+
+    if [ "$name" = "smart-money-dashboard" ] && [ -d "$DOJO_ROOT/bots/smart-money-dashboard" ]; then
+        app_dir="$DOJO_ROOT/bots/smart-money-dashboard"
+    elif [ -d "$DOJO_ROOT/experiments/$name" ]; then
+        app_dir="$DOJO_ROOT/experiments/$name"
+    else
+        echo "No matching Streamlit app for: $name"
+        return
+    fi
+
+    if [ ! -f "$app_dir/$entry" ]; then
+        echo "Streamlit entry not found: $app_dir/$entry"
+        return
+    fi
+
+    cd "$app_dir" || return
+
+    if [ -d ".venv" ]; then
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+    elif [ -d "venv" ]; then
+        # shellcheck disable=SC1091
+        source venv/bin/activate
+    fi
+
+    if ! command -v streamlit >/dev/null 2>&1; then
+        echo "streamlit not found. Install in this venv:"
+        echo "  pip install streamlit"
+        return
+    fi
+
+    log_event "streamlit $name"
+    streamlit run "$entry"
+}
+
+cmd_python_run() {
+    local script="$1"
+    if [ -z "$script" ]; then
+        echo "Usage: dojo python <path-relative-to-dojo>"
+        echo "Example: dojo python bots/farcaster-intel/farcaster_intel.py"
+        return
+    fi
+
+    local full_path="$DOJO_ROOT/$script"
+    local dir
+    dir=$(dirname "$full_path")
+    local file
+    file=$(basename "$full_path")
+
+    if [ ! -f "$full_path" ]; then
+        echo "Script not found: $full_path"
+        return
+    fi
+
+    cd "$dir" || return
+
+    if [ -d ".venv" ]; then
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+    elif [ -d "venv" ]; then
+        # shellcheck disable=SC1091
+        source venv/bin/activate
+    fi
+
+    log_event "python $script"
+    python "$file"
+}
+
+# =====================================================
+# DISPATCH
+# =====================================================
+
+case "$1" in
+    ""|help)        cmd_help ;;
+    version)        cmd_version ;;
+    upgrade)        cmd_upgrade ;;
+    cheatsheet)     cmd_cheatsheet ;;
+    how)            shift; cmd_how "$@" ;;
+    explain)        cmd_explain ;;
+    templates)      cmd_templates ;;
+    map)            cmd_map ;;
+    apps)           cmd_apps ;;
+    protocols)      cmd_protocols ;;
+    tools)          cmd_tools ;;
+    status)         cmd_status ;;
+    list)           cmd_list ;;
+    open)           shift; cmd_open "$@" ;;
+    serve)          shift; cmd_serve "$@" ;;
+    code)           shift; cmd_code "$@" ;;
+    pull-all)       cmd_pull_all ;;
+    status-all)     cmd_status_all ;;
+    repos)          cmd_repos ;;
+    new)
+        shift
+        if [ "$2" = "--template" ]; then
+            cmd_new_app_template "$@"
+        else
+            cmd_new_app_basic "$@"
+        fi
+        ;;
+    tree)           shift; cmd_tree "$@" ;;
+    types)          shift; cmd_types "$@" ;;
+    find)           shift; cmd_find "$@" ;;
+    clean)          cmd_clean ;;
+    clean-explain)  cmd_clean_explain ;;
+    clean-deep)     cmd_clean_deep ;;
+    git-check)      cmd_git_check ;;
+    doctor)
+        shift
+        case "$1" in
+            git)    cmd_doctor_git ;;
+            python) cmd_doctor_python ;;
+            node)   cmd_doctor_node ;;
+            clean)  cmd_doctor_clean ;;
+            disk)   cmd_doctor_disk ;;
+            ""|*)   cmd_doctor ;;
+        esac
+        ;;
+    new-bot)        shift; cmd_new_bot "$@" ;;
+    new-script)     shift; cmd_new_script "$@" ;;
+    intel)          shift; cmd_intel "$@" ;;
+    bot)            shift; cmd_bot "$@" ;;
+    streamlit)      shift; cmd_streamlit "$@" ;;
+    sync)           cmd_sync ;;
+    python)         shift; cmd_python_run "$@" ;;
+    *)
+        echo "Unknown command: $1"
+        echo "Run: dojo help"
+        ;;
+esac

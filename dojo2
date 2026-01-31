@@ -22,30 +22,50 @@ def main():
     nav = Navigator(ctx)
     health = Health(ctx)
     migrate = Migration(ctx, ui.console)  # Pass console
-    
+
     # No arguments = interactive dashboard
     if len(sys.argv) == 1:
         ui.show_dashboard()
         return
-    
+
     cmd = sys.argv[1]
     args = sys.argv[2:] if len(sys.argv) > 2 else []
-    
+
     # Log command for history
     ctx.log_command(cmd, args)
-    
+
     # Core commands
     if cmd in ['help', 'h', '--help']:
         ui.show_help()
+
+    # --- DOJO OS CORE INTEGRATION ---
     
-    # Quick actions
+    elif cmd == 'handoff':
+        # Powers the 'prime' ritual for AI context
+        print(ctx.generate_report())
+
+    elif cmd == 'log':
+        # Manual event logging: dojo log "Finished panel 1"
+        if args:
+            ctx.log_event("USER_NOTE", " ".join(args))
+            ui.console.print("\n [success]❄️  Event logged to knowledge base.[/]\n")
+        else:
+            ui.console.print(" [error]Usage: dojo log <message>[/]\n")
+
+    elif cmd == 'map':
+        # Show structural tree
+        import subprocess
+        subprocess.run(['tree', str(ctx.dojo_root), '-L', '2', '--dirsfirst'])
+
+    # --- EXISTING COMMANDS ---
+
     elif cmd == 'dev':
         nav.run_dev(args[0] if args else None)
     elif cmd == 'code':
         nav.open_vscode(args[0] if args else None)
     elif cmd == 'open':
         nav.open_explorer(args[0] if args else None)
-    
+
     # Navigation
     elif cmd == 'goto':
         if not args:
@@ -58,7 +78,7 @@ def main():
         nav.list_projects(args[0] if args else None)
     elif cmd == 'where':
         nav.show_where()
-    
+
     # Health & maintenance
     elif cmd == 'health':
         health.run_check()
@@ -69,20 +89,11 @@ def main():
     elif cmd == 'fix':
         if args and args[0] == 'all':
             ui.console.print("\n [accent]Running all fixes...[/]\n")
-            health.run_check()  # This offers fixes
-        elif args:
-            ui.console.print(f" [error]Unknown fix target: {args[0]}[/]\n")
-            ui.console.print(" [dim]Available: all, git, python[/]\n")
+            health.run_check()
         else:
-            ui.console.print(" [error]Usage: dojo fix <all|git|python>[/]\n")
-    
+            ui.console.print(" [error]Usage: dojo fix <all>[/]\n")
+
     # Learning & config
-    elif cmd == 'tutorial':
-        ui.show_tutorial()
-    elif cmd == 'examples':
-        ui.show_examples()
-    elif cmd == 'wizard':
-        ui.show_wizard()
     elif cmd == 'learn':
         if args and args[0] in ['on', 'off']:
             enabled = args[0] == 'on'
@@ -92,59 +103,35 @@ def main():
         else:
             current = "ON" if ctx.is_learning_mode() else "OFF"
             ui.console.print(f"\n Learning mode is currently: [accent]{current}[/]\n")
-            ui.console.print(" [dim]Usage: dojo learn [on|off][/]\n")
+    
     elif cmd == 'config':
         if args and args[0] == 'set' and len(args) >= 3:
             key, value = args[1], args[2]
-            # Convert string boolean to actual boolean
-            if value.lower() in ['true', 'false']:
-                value = value.lower() == 'true'
             ctx.save_config(key, value)
             ui.console.print(f"\n [success]Set {key} = {value}[/]\n")
         else:
             ui.show_config()
-    
+
     # Migration
     elif cmd == 'migrate':
-        if '--preview' in args or (not args):
-            migrate.preview()
-            if not args:  # No flag = just preview
-                ui.console.print(" [dim]Run 'dojo migrate --execute' to proceed[/]\n")
-        elif '--execute' in args:
+        if '--execute' in args:
             migrate.execute()
-        elif '--rollback' in args:
-            migrate.rollback()
         else:
-            ui.console.print(" [error]Usage: dojo migrate [--preview|--execute|--rollback][/]\n")
-    
-    # Smart shortcuts
-    elif cmd == 'quick':
-        # Quick command: auto-detect and run most common action
-        if args:
-            nav.goto(args[0])
-        actions = ctx.get_quick_actions()
-        if actions:
-            nav.run_dev()
-        else:
-            ui.console.print(" [error]No quick action available here[/]\n")
-    
+            migrate.preview()
+
     # Version info
     elif cmd in ['version', '--version', '-v']:
         ui.console.print("\n [accent]dojo v2.0[/] ⛄🌸")
-        ui.console.print(" Progressive, context-aware CLI")
         ui.console.print(f" [dim]Config: {ctx.config_dir}[/]\n")
-    
+
     else:
         ui.console.print(f" [error]Unknown command: {cmd}[/]")
-        ui.console.print(" [dim]Try 'dojo help' or just 'dojo' for interactive menu[/]\n")
 
 if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print("\n")
         sys.exit(0)
     except Exception as e:
         print(f"\n [error]Error: {e}[/]")
-        print(" [dim]Run 'dojo help' for usage information[/]\n")
         sys.exit(1)

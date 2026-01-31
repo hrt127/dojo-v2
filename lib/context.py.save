@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 from datetime import datetime
+import subprocess
 
 class DojoContext:
     def __init__(self):
@@ -14,20 +15,13 @@ class DojoContext:
         if not self.history_file.exists():
             self.history_file.write_text(json.dumps({'recent': [], 'visits': {}, 'command_history': []}))
         if not self.config_file.exists():
-            self.config_file.write_text(json.dumps({'learning_mode': True, 'version': 'v2'}))
+            self.config_file.write_text(json.dumps({'learning_mode': False, 'version': 'v2'}))
 
         self.config = json.loads(self.config_file.read_text())
         self.project_name = self.get_project_name()
 
-    def is_in_dojo(self):
-        try:
-            self.cwd.relative_to(self.dojo_root)
-            return True
-        except ValueError:
-            return False
-
     def is_learning_mode(self):
-        return self.config.get('learning_mode', True)
+        return self.config.get('learning_mode', False)
 
     def save_config(self, key, value):
         self.config[key] = value
@@ -41,6 +35,7 @@ class DojoContext:
             return None
 
     def log_command(self, cmd, args):
+        """THIS WAS MISSING: Prevents the AttributeError"""
         try:
             data = json.loads(self.history_file.read_text())
             history = data.get('command_history', [])
@@ -63,3 +58,4 @@ class DojoContext:
             p = sys_path / f
             if p.exists(): report.append(f"## {f}\n{p.read_text()}")
         return "\n".join(report)
+

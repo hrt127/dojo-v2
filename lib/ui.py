@@ -11,7 +11,7 @@ from rich import box
 
 THEME = Theme({
     "header": "bold #FFB7C5",
-    "accent": "#C8A2C8",
+    "accent": "color(208)",
     "text": "#E0E6ED",
     "success": "#A8E6CF",
     "warning": "#FFD3B6",

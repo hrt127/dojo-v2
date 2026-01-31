@@ -1,0 +1,18 @@
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Python (if you add scripts here later)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Logs
+logs/
+*.log
